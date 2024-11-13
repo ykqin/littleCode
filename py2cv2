@@ -1,0 +1,95 @@
+// dbscan.cpp
+#include <vector>
+#include <cmath>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+using namespace std;
+
+typedef vector<vector<double>> Points;
+typedef vector<int> Labels;
+
+double distance(const vector<double>& a, const vector<double>& b) {
+    double dist = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        dist += (a[i] - b[i]) * (a[i] - b[i]);
+    }
+    return sqrt(dist);
+}
+
+vector<int> regionQuery(const Points& points, int idx, double eps) {
+    vector<int> neighbors;
+    for (size_t i = 0; i < points.size(); ++i) {
+        if (distance(points[idx], points[i]) <= eps) {
+            neighbors.push_back(i);
+        }
+    }
+    return neighbors;
+}
+
+void expandCluster(const Points& points, Labels& labels, int idx, int clusterId, double eps, int minPts) {
+    vector<int> seeds = regionQuery(points, idx, eps);
+    if (seeds.size() < minPts) {
+        labels[idx] = -1;  // Mark as noise
+        return;
+    }
+    for (int seed : seeds) {
+        labels[seed] = clusterId;
+    }
+
+    size_t i = 0;
+    while (i < seeds.size()) {
+        int currIdx = seeds[i];
+        vector<int> result = regionQuery(points, currIdx, eps);
+        if (result.size() >= minPts) {
+            for (int res : result) {
+                if (labels[res] == 0) {  // Unvisited point
+                    labels[res] = clusterId;
+                    seeds.push_back(res);
+                }
+            }
+        }
+        ++i;
+    }
+}
+
+vector<int> dbscan(const Points& points, double eps, int minPts) {
+    int clusterId = 0;
+    Labels labels(points.size(), 0);  // 0 means unvisited
+
+    for (size_t i = 0; i < points.size(); ++i) {
+        if (labels[i] != 0) continue;  // Already processed
+        expandCluster(points, labels, i, ++clusterId, eps, minPts);
+    }
+    return labels;
+}
+
+// Pybind11 wrapper
+namespace py = pybind11;
+
+PYBIND11_MODULE(dbscan, m) {
+    m.def("dbscan", &dbscan, "DBSCAN clustering",
+          py::arg("points"), py::arg("eps"), py::arg("minPts"));
+}
+
+
+# CMakeLists.txt
+cmake_minimum_required(VERSION 3.4)
+project(dbscan_module)
+
+add_subdirectory(pybind11)
+pybind11_add_module(dbscan dbscan.cpp)
+
+import dbscan
+
+# 样本数据点
+points = [
+    [1.0, 2.0], [2.0, 2.0], [2.0, 3.0],
+    [8.0, 7.0], [8.0, 8.0], [25.0, 80.0]
+]
+
+# 调用C++的DBSCAN实现
+labels = dbscan.dbscan(points, eps=1.5, minPts=2)
+
+# 输出聚类结果
+print("Cluster labels:", labels)
